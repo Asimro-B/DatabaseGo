@@ -6,15 +6,15 @@ import (
 	"io"
 )
 
-type cellType uint
+type CellType uint
 
 const (
-	TypeI64 cellType = 1
-	TypeStr cellType = 2
+	TypeI64 CellType = 1
+	TypeStr CellType = 2
 )
 
 type Cell struct {
-	Type cellType
+	Type CellType
 	I64  int64
 	str  []byte
 }
@@ -46,7 +46,7 @@ func (cell *Cell) Decode(data []byte) ([]byte, error) {
 	}
 
 	// read the type
-	cell.Type = cellType(data[0])
+	cell.Type = CellType(data[0])
 	rest := data[1:]
 
 	switch cell.Type {
@@ -75,4 +75,59 @@ func (cell *Cell) Decode(data []byte) ([]byte, error) {
 		return nil, errors.New("unknown cell type")
 	}
 
+}
+
+type Schema struct {
+	Table string
+	Cols  []Column
+	PKey  []int // which columns are the primary key?
+}
+type Column struct {
+	Name string
+	Type CellType
+}
+
+type Row []Cell
+
+func (schema *Schema) NewRow() Row {
+	return make(Row, len(schema.Cols))
+}
+
+func (row Row) DecodeKey(schema *Schema, key []byte) error {
+	// 1. Skip the table name and the 0x00 separator
+	prefixLen := len(schema.Table) + 1
+	if len(key) < prefixLen {
+		return errors.New("key too short")
+	}
+	rest := key[prefixLen:]
+
+	// 2. Decode each PK column in order
+	var err error
+	for _, colIdx := range schema.PKey {
+		rest, err = row[colIdx].Decode(rest)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (row Row) DecodeVal(schema *Schema, val []byte) error {
+	isPK := make(map[int]bool)
+	for _, idx := range schema.PKey {
+		isPK[idx] = true
+	}
+
+	// 1. Decode each non-PK column
+	rest := val
+	var err error
+	for i := range schema.Cols {
+		if !isPK[i] {
+			rest, err = row[i].Decode(rest)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
