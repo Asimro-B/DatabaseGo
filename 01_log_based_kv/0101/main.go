@@ -1,0 +1,64 @@
+package main
+
+import (
+	"bytes"
+)
+
+// KV is a simple in-memory key-value store.
+type KV struct {
+	// mem holds our data. We cast []byte keys to string
+	// because Go maps require comparable key types.
+	mem map[string][]byte
+}
+
+// Get retrieves a value for a given key.
+// Returns the value, a boolean indicating if it was found, and an error.
+func (kv *KV) Get(key []byte) (val []byte, ok bool, err error) {
+	// Convert []byte to string for map lookup.
+	// In Go, this conversion creates a copy of the data.
+	val, ok = kv.mem[string(key)]
+	return val, ok, nil
+}
+
+// Set inserts or updates a key-value pair.
+// Returns 'updated' as true if the key already existed with different data.
+func (kv *KV) Set(key []byte, val []byte) (updated bool, err error) {
+	kStr := string(key)
+
+	// Check if the key exists and if the value is actually different
+	oldVal, exists := kv.mem[kStr]
+
+	// We use bytes.Equal to check if the content is actually changing.
+	// This helps us fulfill the requirement of reporting state changes.
+	if exists && !bytes.Equal(oldVal, val) {
+		updated = true
+	} else if !exists {
+		// If it didn't exist before, the state is changing (new entry).
+		updated = true
+	} else {
+		// Key exists and value is the same; no state change.
+		updated = false
+	}
+
+	// Store a copy of the value to ensure the DB remains independent
+	// of the caller's slice memory.
+	content := make([]byte, len(val))
+	copy(content, val)
+	kv.mem[kStr] = content
+
+	return updated, nil
+}
+
+// Del removes a key from the database.
+// Returns 'deleted' as true if the key existed and was removed.
+func (kv *KV) Del(key []byte) (deleted bool, err error) {
+	kStr := string(key)
+
+	_, exists := kv.mem[kStr]
+	if !exists {
+		return false, nil
+	}
+
+	delete(kv.mem, kStr)
+	return true, nil
+}
