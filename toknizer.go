@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -226,4 +228,153 @@ func (p *Parser) ParseEqual(out *NamedCell) error {
 		return errors.New("expect =")
 	}
 	return p.ParseValue(&out.value)
+}
+
+type StmntCreateTable struct {
+	table string
+	cols  []Column
+	pkey  []string
+}
+
+type StmntInsert struct {
+	table string
+	val   []Cell
+}
+
+type StmntUpdate struct {
+	table  string
+	keys   []NamedCell
+	values []NamedCell
+}
+
+type StmntDelete struct {
+	table string
+	keys  []NamedCell
+}
+
+func (p *Parser) ParseInsert(out *StmntInsert) error {
+	// get table name
+	var ok bool
+	if out.table, ok = p.TryName(); !ok {
+		return errors.New("expect table name")
+	}
+
+	// expect values and bracket
+	if !p.TryKeywordkw("VALUES") || !p.tryPunctuation("()") {
+		return errors.New("expect VALUES (")
+	}
+
+	// loop through values until it gets )
+	for {
+		var c Cell
+
+		if err := p.ParseValue(&c); err != nil {
+			return err
+		}
+		out.val = append(out.val, c)
+
+		if p.tryPunctuation(")") {
+			break
+		}
+		if !p.tryPunctuation(",") {
+			return errors.New("expect , or )")
+		}
+	}
+
+	return nil
+}
+
+type SQLResult struct {
+	Updated int
+	Header  []string
+	Values  []Row
+}
+
+func pkeyColumnIndexes(cols []Column, pkeys []string) ([]int, error) {
+	indexByName := make(map[string]int, len(cols))
+	for i, c := range cols {
+		indexByName[c.Name] = i
+	}
+
+	indexes := make([]int, 0, len(pkeys))
+	for _, key := range pkeys {
+		idx, ok := indexByName[key]
+		if !ok {
+			return nil, errors.New("unknown primary key column: " + key)
+		}
+		indexes = append(indexes, idx)
+	}
+
+	return indexes, nil
+}
+
+func (db *DB) execCreateTable(stmt *StmntCreateTable) error {
+	pkeyIdx, err := pkeyColumnIndexes(stmt.cols, stmt.pkey)
+	if err != nil {
+		return err
+	}
+
+	// convert statement to schema struct
+	schema := Schema{
+		Table: stmt.table,
+		Cols:  stmt.cols,
+		PKey:  pkeyIdx,
+	}
+
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return err
+	}
+	key := []byte("@schema_" + stmt.table)
+	if _, err := db.KV.Set(key, data); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (db *DB) ExecStmt(stmt interface{}) (r SQLResult, err error) {
+	switch ptr := stmt.(type) {
+	case *StmntCreateTable:
+		err = db.execCreateTable(ptr)
+	default:
+		err = errors.New("unsupported statement type")
+	}
+
+	return r, err
+}
+
+func (db *DB) GetSchema(table string) (Schema, error) {
+	schema, ok := db.tables[table]
+	if !ok {
+		val, ok, err := db.KV.Get([]byte("@schema_" + table))
+		if err == nil && ok {
+			err = json.Unmarshal(val, &schema)
+		}
+		if err != nil {
+			return Schema{}, err
+		}
+		if !ok {
+			return Schema{}, errors.New("table not found")
+		}
+		db.tables[table] = schema
+	}
+
+	return schema, nil
+}
+
+func BinarySearch(keys [][]byte, target []byte) (int, bool) {
+	low, high := 0, len(keys)-1
+	for low <= high {
+		mid := low + (high-low)/2
+		cmp := bytes.Compare(keys[mid], target)
+		if cmp == 0 {
+			return mid, true // Found it!
+		} else if cmp < 0 {
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return low, false // Not found, but 'low' is the insertion index
 }

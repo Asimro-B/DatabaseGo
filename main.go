@@ -2,15 +2,16 @@ package main
 
 import (
 	"bytes"
+	"slices"
 )
 
 // Get retrieves a value for a given key.
 // Returns the value, a boolean indicating if it was found, and an error.
 func (kv *KV) Get(key []byte) (val []byte, ok bool, err error) {
-	// Convert []byte to string for map lookup.
-	// In Go, this conversion creates a copy of the data.
-	val, ok = kv.mem[string(key)]
-	return val, ok, nil
+	if idx, ok := slices.BinarySearchFunc(kv.keys, key, bytes.Compare); ok {
+		return kv.vals[idx], true, nil
+	}
+	return nil, false, nil
 }
 
 // Set inserts or updates a key-value pair.

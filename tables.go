@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
+	"slices"
 )
 
 type CellType uint
@@ -170,32 +172,34 @@ const (
 )
 
 func (kv *KV) SetEx(key []byte, val []byte, mode UpdateMode) (bool, error) {
-	kStr := string(key)
+	idx, exists := slices.BinarySearchFunc(kv.keys, key, bytes.Compare)
 
-	// check state of val
-	_, exists := kv.mem[kStr]
-
-	switch mode {
-	case ModeInsert:
-		if exists {
-			return false, nil
-		}
-	case ModeUpdate:
-		if !exists {
-			return false, nil
-		}
+	if mode == ModeInsert && exists {
+		return false, nil
+	}
+	if mode == ModeUpdate && !exists {
+		return false, nil
 	}
 
-	// update
-	content := make([]byte, len(val))
-	copy(content, val)
-	kv.mem[kStr] = content
+	ent := &Entry{key: key, val: val, deleted: false}
+	if err := kv.log.Write(ent); err != nil {
+		return false, nil
+	}
+
+	// update memory
+	if exists {
+		kv.vals[idx] = val
+	} else {
+		kv.keys = slices.Insert(kv.keys, idx, key)
+		kv.vals = slices.Insert(kv.vals, idx, val)
+	}
 
 	return true, nil
 }
 
 type DB struct {
-	KV KV
+	KV     KV
+	tables map[string]Schema
 }
 
 func (db *DB) Insert(schema *Schema, row Row) (bool, error) {
