@@ -93,6 +93,35 @@ func (schema *Schema) NewRow() Row {
 	return make(Row, len(schema.Cols))
 }
 
+func (row Row) EmcodeKey(schema *Schema) (key []byte) {
+	// table name prefix
+	key = append([]byte(schema.Table), 0*00)
+
+	// add each pk col
+	for _, colIdx := range schema.PKey {
+		key = row[colIdx].Encode(key)
+	}
+
+	return key
+}
+
+func (row Row) EncodeVal(schema *Schema) (val []byte) {
+	// look for pk
+	isPk := make(map[int]bool)
+	for _, idx := range schema.PKey {
+		isPk[idx] = true
+	}
+
+	// append every column that is not pk
+	for i := range schema.Cols {
+		if !isPk[i] {
+			val = row[i].Encode(val)
+		}
+	}
+
+	return val
+}
+
 func (row Row) DecodeKey(schema *Schema, key []byte) error {
 	// 1. Skip the table name and the 0x00 separator
 	prefixLen := len(schema.Table) + 1
@@ -130,4 +159,81 @@ func (row Row) DecodeVal(schema *Schema, val []byte) error {
 		}
 	}
 	return nil
+}
+
+type UpdateMode int
+
+const (
+	ModeUpsert UpdateMode = 0
+	ModeInsert UpdateMode = 1
+	ModeUpdate UpdateMode = 2
+)
+
+func (kv *KV) SetEx(key []byte, val []byte, mode UpdateMode) (bool, error) {
+	kStr := string(key)
+
+	// check state of val
+	_, exists := kv.mem[kStr]
+
+	switch mode {
+	case ModeInsert:
+		if exists {
+			return false, nil
+		}
+	case ModeUpdate:
+		if !exists {
+			return false, nil
+		}
+	}
+
+	// update
+	content := make([]byte, len(val))
+	copy(content, val)
+	kv.mem[kStr] = content
+
+	return true, nil
+}
+
+type DB struct {
+	KV KV
+}
+
+func (db *DB) Insert(schema *Schema, row Row) (bool, error) {
+	key := row.EmcodeKey(schema)
+	val := row.EncodeVal(schema)
+
+	return db.KV.SetEx(key, val, ModeInsert)
+}
+
+func (db *DB) Update(schema *Schema, row Row) (bool, error) {
+	key := row.EmcodeKey(schema)
+	val := row.EncodeVal(schema)
+
+	return db.KV.SetEx(key, val, ModeUpdate)
+}
+
+func (db *DB) Upseret(schema *Schema, row Row) (bool, error) {
+	key := row.EmcodeKey(schema)
+	val := row.EncodeVal(schema)
+
+	return db.KV.SetEx(key, val, ModeUpsert)
+}
+
+func (db *DB) Select(schema *Schema, row Row) (bool, error) {
+	key := row.EmcodeKey(schema)
+
+	// fetch val from kv
+	val, ok, err := db.KV.Get(key)
+	if err != nil || !ok {
+		return ok, err
+	}
+
+	err = row.DecodeVal(schema, val)
+	return true, err
+}
+
+func (db *DB) Delete(schema *Schema, row Row) (bool, error) {
+	key := row.EmcodeKey(schema)
+
+	return db.KV.Del(key)
 }

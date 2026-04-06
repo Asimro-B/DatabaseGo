@@ -4,13 +4,6 @@ import (
 	"bytes"
 )
 
-// KV is a simple in-memory key-value store.
-type KV struct {
-	// mem holds our data. We cast []byte keys to string
-	// because Go maps require comparable key types.
-	mem map[string][]byte
-}
-
 // Get retrieves a value for a given key.
 // Returns the value, a boolean indicating if it was found, and an error.
 func (kv *KV) Get(key []byte) (val []byte, ok bool, err error) {
@@ -22,7 +15,7 @@ func (kv *KV) Get(key []byte) (val []byte, ok bool, err error) {
 
 // Set inserts or updates a key-value pair.
 // Returns 'updated' as true if the key already existed with different data.
-func (kv *KV) Set(key []byte, val []byte) (updated bool, err error) {
+func (kv *KV) Set1(key []byte, val []byte) (updated bool, err error) {
 	kStr := string(key)
 
 	// Check if the key exists and if the value is actually different
@@ -51,7 +44,7 @@ func (kv *KV) Set(key []byte, val []byte) (updated bool, err error) {
 
 // Del removes a key from the database.
 // Returns 'deleted' as true if the key existed and was removed.
-func (kv *KV) Del(key []byte) (deleted bool, err error) {
+func (kv *KV) Del1(key []byte) (deleted bool, err error) {
 	kStr := string(key)
 
 	_, exists := kv.mem[kStr]
