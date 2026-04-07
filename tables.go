@@ -8,6 +8,9 @@ import (
 	"slices"
 )
 
+// ErrOutOfRange is returned when a KV key does not belong to this table (e.g. iterator moved past the table).
+var ErrOutOfRange = errors.New("key out of range")
+
 type CellType uint
 
 const (
@@ -129,6 +132,14 @@ func (row Row) DecodeKey(schema *Schema, key []byte) error {
 	prefixLen := len(schema.Table) + 1
 	if len(key) < prefixLen {
 		return errors.New("key too short")
+	}
+	for i := 0; i < len(schema.Table); i++ {
+		if key[i] != schema.Table[i] {
+			return ErrOutOfRange
+		}
+	}
+	if key[len(schema.Table)] != 0x00 {
+		return ErrOutOfRange
 	}
 	rest := key[prefixLen:]
 
