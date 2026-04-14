@@ -13,7 +13,7 @@ type KVIterator struct {
 	pos  int // position
 }
 
-func (kv *KV) Seek(key []byte) (*KVIterator, error) {
+func (kv *KV) SeekArray(key []byte) (*KVIterator, error) {
 	pos, _ := slices.BinarySearchFunc(kv.keys, key, bytes.Compare)
 	return &KVIterator{keys: kv.keys, vals: kv.vals, pos: pos}, nil
 }
@@ -126,7 +126,7 @@ func (db *DB) Seek(schema *Schema, row Row) (*RowIterator, error) {
 	key := row.EmcodeKey(schema)
 
 	// seek the underling kv store
-	kvIter, err := db.KV.Seek(key)
+	kvIter, err := db.KV.SeekArray(key)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (iter *RangedKVIter) Next() error {
 }
 
 func (kv *KV) Range(start, stop []byte, desc bool) (*RangedKVIter, error) {
-	iter, err := kv.Seek(start)
+	iter, err := kv.SeekArray(start)
 	if err != nil {
 		return nil, err
 	}
@@ -250,12 +250,3 @@ const (
 	OP_OR  ExprOp = 21
 	OP_NOT ExprOp = 22
 )
-
-type RangeReq struct {
-	StartCmp ExprOp // <= >= < >
-	StopCmp  ExprOp
-	Start    []Cell
-	Stop     []Cell
-}
-
-func (db *DB) Range(schema *Schema, req *RangeReq) (*RowIterator, error)
